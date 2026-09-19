@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getTask, updateBox, deleteBox } from '../db';
-import { generateQRDataURL, statusColor, statusLabel } from '../utils';
-import type { MoveTask, Box, BoxStatus } from '../types';
+import { generateQRDataURL, statusColor, statusLabel, claimMissingLabels, formatDateTime, damageDegreeLabel } from '../utils';
+import type { MoveTask, Box, BoxStatus, Claim } from '../types';
 
 const route = useRoute();
 const router = useRouter();
@@ -12,6 +12,18 @@ const box = ref<Box | null>(null);
 const qrUrl = ref('');
 
 const statuses: BoxStatus[] = ['packed', 'loaded', 'arrived', 'unpacked', 'damaged', 'missing'];
+
+const claims = computed<Claim[]>(() =>
+  task.value && box.value ? task.value.claims!.filter((c) => c.boxId === box.value!.id) : [],
+);
+const openClaim = computed(() => claims.value.find((c) => c.status === 'open'));
+const settledClaims = computed(() =>
+  claims.value
+    .filter((c) => c.status === 'settled')
+    .sort((a, b) => (b.settledAt ?? b.updatedAt) - (a.settledAt ?? a.updatedAt)),
+);
+// 破损箱若连一张未结单都没有，也属于待跟进
+const showClaimSection = computed(() => box.value?.status === 'damaged' || claims.value.length > 0);
 
 async function load() {
   const t = await getTask(route.params.id as string);
@@ -28,6 +40,11 @@ async function setStatus(s: BoxStatus) {
   box.value.status = s;
   box.value.updatedAt = Date.now();
   await updateBox(task.value.id, box.value);
+  if (s === 'damaged' && !openClaim.value) {
+    if (confirm('箱子已标记为破损。是否现在开一张理赔单？')) {
+      router.push(`/task/${task.value.id}/claim/box/${box.value.id}/new`);
+    }
+  }
 }
 
 async function remove() {
@@ -61,6 +78,48 @@ onMounted(load);
           <button v-for="s in statuses" :key="s" class="tag" :class="{active: box.status === s}" @click="setStatus(s)">
             {{ statusLabel(s) }}
           </button>
+        </div>
+      </div>
+
+      <div v-if="showClaimSection" class="card" style="border-left:4px solid var(--danger);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <span style="font-weight:700;color:var(--danger);">破损理赔</span>
+          <button
+            v-if="!openClaim"
+            class="tag active"
+            style="border-color:var(--primary-dark);"
+            @click="router.push(`/task/${task.id}/claim/box/${box.id}/new`)"
+          >开理赔单</button>
+        </div>
+
+        <div v-if="openClaim" class="card" style="background:var(--bg);margin-bottom:8px;cursor:pointer;" @click="router.push(`/task/${task.id}/claim/${openClaim.id}`)">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-weight:700;">未结理赔单</span>
+            <span style="font-size:12px;color:var(--warning);">处理中</span>
+          </div>
+          <div v-if="claimMissingLabels(openClaim).length" style="font-size:13px;color:var(--danger);margin-top:6px;">
+            缺：{{ claimMissingLabels(openClaim).join('、') }}
+          </div>
+          <div v-else style="font-size:13px;color:var(--success);margin-top:6px;">四样已填齐，可结案</div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-top:6px;">
+            <template v-if="openClaim.estimatedAmount !== null">估赔 ¥{{ openClaim.estimatedAmount.toFixed(2) }} · </template>
+            <template v-if="openClaim.assessor">{{ openClaim.assessor }} · </template>
+            {{ formatDateTime(openClaim.updatedAt) }}
+          </div>
+        </div>
+
+        <div v-for="c in settledClaims" :key="c.id" class="card" style="background:var(--bg);margin-bottom:8px;cursor:pointer;" @click="router.push(`/task/${task.id}/claim/${c.id}`)">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-weight:700;">已结理赔单</span>
+            <span style="font-size:12px;color:var(--text-secondary);">{{ c.settledAt ? formatDateTime(c.settledAt) : '' }}</span>
+          </div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-top:6px;">
+            {{ c.damageDegree ? damageDegreeLabel(c.damageDegree) : (c.damageLocation || '破损') }} · 赔付 ¥{{ (c.estimatedAmount ?? 0).toFixed(2) }} · {{ c.assessor }}
+          </div>
+        </div>
+
+        <div v-if="!claims.length" style="font-size:14px;color:var(--text-secondary);">
+          该箱已标记破损，还没有理赔单，点右上角开单。
         </div>
       </div>
 

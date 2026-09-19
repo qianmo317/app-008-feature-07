@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import type { MoveTask, BoxStatus } from './types';
+import type { MoveTask, BoxStatus, Claim, DamageDegree } from './types';
 
 export function uid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -124,4 +124,56 @@ export function roomProgress(task: MoveTask, room: string): { total: number; unp
     unpacked: boxes.filter((b) => b.status === 'unpacked').length,
     damaged: boxes.filter((b) => b.status === 'damaged').length,
   };
+}
+
+export function damageDegreeLabel(degree: DamageDegree): string {
+  const map: Record<DamageDegree, string> = {
+    minor: '轻微（磕碰划痕）',
+    moderate: '中度（变形/局部破损）',
+    severe: '严重（碎裂/内容物受损）',
+  };
+  return map[degree];
+}
+
+// 四样：①位置与程度 ②估赔金额 ③定损人 ④现场照片与说明
+export const CLAIM_REQUIRED_ITEMS = [
+  { key: 'damage', label: '损坏位置与程度' },
+  { key: 'amount', label: '估赔金额' },
+  { key: 'assessor', label: '定损人' },
+  { key: 'evidence', label: '现场照片与说明' },
+] as const;
+
+export type ClaimMissingKey = (typeof CLAIM_REQUIRED_ITEMS)[number]['key'];
+
+export function claimMissingItems(
+  claim: Pick<Claim, 'damageLocation' | 'damageDegree' | 'estimatedAmount' | 'assessor' | 'photos' | 'description'>,
+): ClaimMissingKey[] {
+  const missing: ClaimMissingKey[] = [];
+  if (!claim.damageLocation.trim() || !claim.damageDegree) missing.push('damage');
+  const amount = claim.estimatedAmount;
+  if (amount === null || amount === undefined || typeof amount !== 'number' || Number.isNaN(amount)) {
+    missing.push('amount');
+  }
+  if (!claim.assessor.trim()) missing.push('assessor');
+  if (claim.photos.length === 0 || !claim.description.trim()) missing.push('evidence');
+  return missing;
+}
+
+export function claimMissingLabels(
+  claim: Pick<Claim, 'damageLocation' | 'damageDegree' | 'estimatedAmount' | 'assessor' | 'photos' | 'description'>,
+): string[] {
+  const missing = claimMissingItems(claim);
+  return CLAIM_REQUIRED_ITEMS.filter((item) => missing.includes(item.key)).map((item) => item.label);
+}
+
+export function isClaimComplete(
+  claim: Pick<Claim, 'damageLocation' | 'damageDegree' | 'estimatedAmount' | 'assessor' | 'photos' | 'description'>,
+): boolean {
+  return claimMissingItems(claim).length === 0;
+}
+
+export function formatDateTime(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
