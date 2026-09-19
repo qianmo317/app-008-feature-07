@@ -9,6 +9,8 @@ const routes = [
   { path: '/task/:id/labels', name: 'LabelsPrint', component: () => import('./views/LabelsPrint.vue') },
   { path: '/task/:id/scan', name: 'ScanCheck', component: () => import('./views/ScanCheck.vue') },
   { path: '/task/:id/check', name: 'DeliveryCheck', component: () => import('./views/DeliveryCheck.vue') },
+  { path: '/task/:id/box/:code/claim', name: 'BoxClaim', component: () => import('./views/ClaimForm.vue') },
+  { path: '/task/:id/box/:code/claim/:claimId', name: 'ClaimDetail', component: () => import('./views/ClaimForm.vue') },
 ];
 
 export default createRouter({

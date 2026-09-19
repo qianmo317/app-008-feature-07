@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getTask } from '../db';
-import { estimateVehicle, roomProgress, statusColor, statusLabel } from '../utils';
+import { getTask, getBoxClaims, claimMissingFields } from '../db';
+import { estimateVehicle, roomProgress, statusColor, statusLabel, CLAIM_FIELD_LABELS } from '../utils';
 import type { MoveTask } from '../types';
 
 const route = useRoute();
@@ -20,6 +20,27 @@ const stats = computed(() => {
   };
 });
 
+// 破损箱的理赔跟进：点名每只箱缺四样中的哪几样
+const claimTracking = computed(() => {
+  if (!task.value) return { pending: [] as { boxCode: string; claimId: string | null; missing: string[] }[], closedCount: 0 };
+  const pending: { boxCode: string; claimId: string | null; missing: string[] }[] = [];
+  let closedCount = 0;
+  for (const b of task.value.boxes.filter((x) => x.status === 'damaged')) {
+    const claims = getBoxClaims(task.value, b.id);
+    const open = claims.find((c) => c.status === 'open');
+    if (open) {
+      const missing = claimMissingFields(open);
+      if (missing.length > 0) pending.push({ boxCode: b.code, claimId: open.id, missing });
+      else pending.push({ boxCode: b.code, claimId: open.id, missing: [] });
+    } else if (claims.some((c) => c.status === 'closed')) {
+      closedCount++;
+    } else {
+      pending.push({ boxCode: b.code, claimId: null, missing: ['damage', 'amount', 'assessor', 'evidence'] });
+    }
+  }
+  return { pending, closedCount };
+});
+
 const vehicle = computed(() => {
   if (!task.value || task.value.boxes.length === 0) return null;
   return estimateVehicle(task.value.boxes.length);
@@ -32,6 +53,12 @@ const roomStats = computed(() => {
 
 async function load() {
   task.value = await getTask(route.params.id as string);
+}
+
+function openClaim(row: { boxCode: string; claimId: string | null }) {
+  if (!task.value) return;
+  const base = `/task/${task.value.id}/box/${row.boxCode}/claim`;
+  router.push(row.claimId ? `${base}/${row.claimId}` : base);
 }
 
 onMounted(load);
@@ -61,6 +88,36 @@ onMounted(load);
           <div style="font-size:28px;font-weight:800;color:var(--danger);">{{ stats.damaged }}</div>
           <div style="font-size:12px;color:var(--text-secondary);">破损</div>
         </div>
+      </div>
+
+      <div v-if="claimTracking.pending.length" class="card" style="border-left:4px solid var(--danger);">
+        <div style="font-weight:700;color:var(--danger);margin-bottom:4px;">
+          理赔跟进（{{ claimTracking.pending.length }} 箱未结案<template v-if="claimTracking.closedCount"> · {{ claimTracking.closedCount }} 箱已结案</template>）
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">必填四项：损坏位置与程度 / 预估赔偿金额 / 定损人 / 现场照片与说明</div>
+        <div
+          v-for="row in claimTracking.pending"
+          :key="row.boxCode"
+          class="card"
+          style="margin-bottom:8px;cursor:pointer;"
+          @click="openClaim(row)"
+        >
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-weight:700;">{{ row.boxCode }}</span>
+            <span v-if="row.missing.length === 0" style="font-size:12px;color:var(--success);font-weight:600;">✓ 四项齐全，待结案 ›</span>
+            <span v-else style="font-size:12px;color:var(--danger);font-weight:600;">去填写 ›</span>
+          </div>
+          <div v-if="row.claimId === null" style="font-size:13px;color:var(--danger);margin-top:4px;">
+            还没有理赔单，四项均未填
+          </div>
+          <div v-else-if="row.missing.length" style="font-size:13px;color:var(--danger);margin-top:4px;">
+            缺：<strong>{{ row.missing.map((k) => CLAIM_FIELD_LABELS[k]).join('、') }}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div v-else-if="stats.damaged > 0" class="card" style="border-left:4px solid var(--success);">
+        <div style="font-weight:700;color:var(--success);">理赔跟进：{{ claimTracking.closedCount }} 只破损箱的理赔单均已结案</div>
       </div>
 
       <div v-if="vehicle" class="card">

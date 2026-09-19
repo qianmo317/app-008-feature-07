@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import type { MoveTask, BoxStatus } from './types';
+import type { MoveTask, BoxStatus, DamageSeverity } from './types';
 
 export function uid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -124,4 +124,43 @@ export function roomProgress(task: MoveTask, room: string): { total: number; unp
     unpacked: boxes.filter((b) => b.status === 'unpacked').length,
     damaged: boxes.filter((b) => b.status === 'damaged').length,
   };
+}
+
+export function severityLabel(severity: DamageSeverity): string {
+  const map: Record<DamageSeverity, string> = {
+    light: '轻微（压痕/蹭伤）',
+    medium: '中等（变形/开裂）',
+    severe: '严重（破损/内物损坏）',
+  };
+  return map[severity];
+}
+
+export function severityColor(severity: DamageSeverity): string {
+  const map: Record<DamageSeverity, string> = {
+    light: '#f59e0b',
+    medium: '#f97316',
+    severe: '#ef4444',
+  };
+  return map[severity];
+}
+
+// 理赔单四项必填的展示名
+export const CLAIM_FIELD_LABELS: Record<string, string> = {
+  damage: '损坏位置与程度',
+  amount: '预估赔偿金额',
+  assessor: '定损人',
+  evidence: '现场照片与说明',
+};
+
+export function formatDateTime(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function normalizeAmount(raw: string | number | null | undefined): number | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (Number.isNaN(n) || n < 0) return null;
+  return Math.round(n * 100) / 100;
 }
